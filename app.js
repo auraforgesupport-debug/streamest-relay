@@ -1,7 +1,6 @@
 const adjectives = ["Swift", "Nova", "Clutch", "Turbo", "Prime", "Flux", "Apex", "Neon"];
 const nouns = ["Rift", "Viper", "Pulse", "Knight", "Vector", "Raider", "Drift", "Cipher"];
 
-const params = new URLSearchParams(location.search);
 const peerConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -118,7 +117,7 @@ function normalizeRelayUrl(value) {
 }
 
 function currentSignalBase() {
-  return state.relayUrl || state.serverInfo?.localUrl || location.origin;
+  return state.relayUrl || state.serverInfo?.localUrl || "http://127.0.0.1";
 }
 
 function updateSharePanel() {
@@ -140,16 +139,16 @@ async function loadServerInfo() {
     state.serverInfo = await window.streamestDesktop.getServerInfo();
   } else {
     state.serverInfo = {
-      localUrl: location.origin,
-      networkUrls: [location.origin],
-      port: location.port
+      localUrl: "http://127.0.0.1",
+      networkUrls: [],
+      port: ""
     };
   }
 
   state.relayUrl = normalizeRelayUrl(localStorage.getItem("streamest-relay-url") || "");
   state.streamCode = savedStreamCode();
   els.relayServerInput.value = state.relayUrl;
-  els.joinStreamInput.value = localStorage.getItem("streamest-watch-code") || params.get("code") || "";
+  els.joinStreamInput.value = localStorage.getItem("streamest-watch-code") || "";
   updateSharePanel();
 }
 
