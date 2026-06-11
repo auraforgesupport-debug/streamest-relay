@@ -1,0 +1,48 @@
+{
+  "name": "streamest",
+  "version": "0.1.0",
+  "description": "A low-latency game streaming desktop app prototype.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis --x64",
+    "pack": "electron-builder --win dir --x64",
+    "relay": "node relay-server.js"
+  },
+  "build": {
+    "appId": "com.streamest.desktop",
+    "productName": "Streamest",
+    "directories": {
+      "output": "dist-app"
+    },
+    "files": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "main.js",
+      "server.js",
+      "relay-server.js",
+      "json-store.js",
+      "preload.js",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "electron": "^35.7.5",
+    "electron-builder": "^26.0.12"
+  }
+}

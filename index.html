@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Streamest</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Streamest navigation">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">S</div>
+          <div>
+            <p class="eyebrow">Streamest</p>
+            <h1>Game streams</h1>
+          </div>
+        </div>
+
+        <section class="profile-panel" aria-labelledby="profile-title">
+          <p class="panel-label" id="profile-title">Your channel</p>
+          <div class="user-row">
+            <div class="avatar" id="avatarInitial">S</div>
+            <div>
+              <strong id="username">Loading...</strong>
+              <span id="statusText">Ready to stream</span>
+            </div>
+          </div>
+          <label class="field">
+            <span>Display name</span>
+            <input id="usernameInput" type="text" maxlength="18" autocomplete="off" />
+          </label>
+        </section>
+
+        <section class="profile-panel compact" aria-label="Stream settings">
+          <p class="panel-label">Stream quality</p>
+          <div class="metric-grid">
+            <div>
+              <strong id="qualityMetric">1080p</strong>
+              <span>Target</span>
+            </div>
+            <div>
+              <strong id="latencyMetric">Low</strong>
+              <span>Latency</span>
+            </div>
+          </div>
+          <label class="toggle-row">
+            <input id="performanceMode" type="checkbox" checked />
+            <span>Performance mode</span>
+          </label>
+        </section>
+
+        <section class="profile-panel compact" aria-label="Share stream">
+          <p class="panel-label">Live profile</p>
+          <div class="share-box" id="viewerLink">Starting server...</div>
+          <span class="helper-text" id="connectionStatus">Connecting to stream server</span>
+        </section>
+
+        <section class="profile-panel compact hidden" aria-label="Watch stream">
+          <p class="panel-label">Watch stream</p>
+          <label class="field">
+            <span>Stream code</span>
+            <input id="joinStreamInput" type="text" autocomplete="off" placeholder="ABCD12" />
+          </label>
+          <button class="secondary-button" id="joinStreamButton" type="button">
+            <span class="watch-icon" aria-hidden="true"></span>
+            <span>Find stream</span>
+          </button>
+        </section>
+
+        <section class="profile-panel compact" aria-label="Relay server">
+          <p class="panel-label">Relay server</p>
+          <label class="field">
+            <span>Server URL</span>
+            <input id="relayServerInput" type="text" autocomplete="off" placeholder="https://relay.yourdomain.com" />
+          </label>
+          <span class="helper-text" id="relayStatus">Local mode shows your network address. Relay mode uses a code.</span>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Live now</p>
+            <h2>Watch or start a stream</h2>
+          </div>
+          <div class="actions">
+            <button class="ghost-button" id="copyLinkButton" type="button" title="Copy channel link">
+              <span class="share-icon" aria-hidden="true"></span>
+              <span>Refresh</span>
+            </button>
+            <button class="primary-button" id="goLiveButton" type="button">
+              <span class="button-dot" aria-hidden="true"></span>
+              <span>Go live</span>
+            </button>
+            <button class="danger-button hidden" id="endStreamButton" type="button">
+              <span class="stop-icon" aria-hidden="true"></span>
+              <span>End stream</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="viewer-layout">
+          <div class="theater" aria-live="polite">
+            <div class="video-frame">
+              <video id="viewerVideo" playsinline autoplay muted></video>
+              <div class="poster" id="poster">
+                <div class="pulse-ring" aria-hidden="true"></div>
+                <p id="posterTitle">Select a stream</p>
+                <span id="posterSubtitle">Choose someone live or start your own broadcast.</span>
+              </div>
+            </div>
+            <div class="watch-bar">
+              <div>
+                <p class="panel-label">Now watching</p>
+                <h3 id="watchTitle">No stream selected</h3>
+              </div>
+              <div class="watch-stats">
+                <span id="viewerCount">0 viewers</span>
+                <span id="streamQuality">Idle</span>
+              </div>
+            </div>
+          </div>
+
+          <aside class="stream-panel" aria-labelledby="streams-heading">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Browse</p>
+                <h2 id="streams-heading">Streams</h2>
+              </div>
+              <span id="streamCount">0</span>
+            </div>
+            <div class="stream-list" id="streamList"></div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal hidden" id="captureModal" role="dialog" aria-modal="true" aria-labelledby="captureTitle">
+      <div class="modal-panel">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Go live</p>
+            <h2 id="captureTitle">Choose what to stream</h2>
+          </div>
+          <button class="icon-button" id="closeCaptureModal" type="button" aria-label="Close capture picker">x</button>
+        </div>
+        <div class="source-grid" id="sourceGrid"></div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
