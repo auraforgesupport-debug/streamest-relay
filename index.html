@@ -79,6 +79,27 @@
           <div class="share-box" id="backendStatus">Connecting to Supabase...</div>
           <span class="helper-text" id="relayStatus">Live profiles use Supabase Realtime.</span>
         </section>
+
+        <section class="profile-panel compact" aria-label="WebRTC privacy">
+          <p class="panel-label">WebRTC privacy</p>
+          <label class="field">
+            <span>TURN URL</span>
+            <input id="turnUrlInput" type="text" autocomplete="off" placeholder="turn:your-turn-server.com:3478" />
+          </label>
+          <label class="field stacked-field">
+            <span>TURN username</span>
+            <input id="turnUsernameInput" type="text" autocomplete="off" />
+          </label>
+          <label class="field stacked-field">
+            <span>TURN password</span>
+            <input id="turnPasswordInput" type="password" autocomplete="off" />
+          </label>
+          <button class="secondary-button" id="saveTurnButton" type="button">
+            <span class="watch-icon" aria-hidden="true"></span>
+            <span>Save TURN</span>
+          </button>
+          <span class="helper-text" id="turnStatus">TURN is required before streaming or watching.</span>
+        </section>
       </aside>
 
       <main class="workspace">
