@@ -24,6 +24,7 @@
       "relay-server.js",
       "json-store.js",
       "preload.js",
+      "node_modules/@supabase/supabase-js/dist/umd/supabase.js",
       "assets/**/*"
     ],
     "win": {
@@ -39,6 +40,7 @@
     }
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.1",
     "ws": "^8.18.3"
   },
   "devDependencies": {

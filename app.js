@@ -9,6 +9,7 @@ const peerConfig = {
 };
 
 const localRoomCode = "LOCAL";
+const liveTopic = "streamest-live";
 
 const state = {
   username: "",
@@ -18,6 +19,9 @@ const state = {
   selectedId: null,
   streams: [],
   socket: null,
+  supabase: null,
+  liveChannel: null,
+  streamChannel: null,
   clientId: null,
   serverInfo: null,
   viewerCount: 0,
@@ -27,7 +31,9 @@ const state = {
   watchMode: false,
   signalBaseUrl: "",
   relayUrl: "",
-  streamCode: ""
+  streamCode: "",
+  isSupabaseReady: false,
+  liveInterval: null
 };
 
 const els = {
@@ -57,6 +63,7 @@ const els = {
   joinStreamButton: document.querySelector("#joinStreamButton"),
   relayServerInput: document.querySelector("#relayServerInput"),
   relayStatus: document.querySelector("#relayStatus"),
+  backendStatus: document.querySelector("#backendStatus"),
   captureModal: document.querySelector("#captureModal"),
   closeCaptureModal: document.querySelector("#closeCaptureModal"),
   sourceGrid: document.querySelector("#sourceGrid")
@@ -121,12 +128,12 @@ function currentSignalBase() {
 }
 
 function updateSharePanel() {
-  if (state.relayUrl) {
+  if (state.isSupabaseReady) {
     els.viewerLink.textContent = "Your profile appears in Browse when you go live.";
-    els.relayStatus.textContent = "Relay mode is on. Viewers open the app and press your live profile.";
+    els.relayStatus.textContent = "Supabase Realtime is connected. Viewers open the app and press your live profile.";
   } else {
-    els.viewerLink.textContent = "Add a relay server to show live profiles without sharing your IP.";
-    els.relayStatus.textContent = "No relay is set. Live discovery needs a hosted relay server.";
+    els.viewerLink.textContent = "Connecting to Supabase live directory...";
+    els.relayStatus.textContent = "Live discovery needs Supabase Realtime.";
   }
 }
 
@@ -145,9 +152,11 @@ async function loadServerInfo() {
     };
   }
 
-  state.relayUrl = normalizeRelayUrl(localStorage.getItem("streamest-relay-url") || "");
+  state.relayUrl = "";
   state.streamCode = savedStreamCode();
-  els.relayServerInput.value = state.relayUrl;
+  if (els.relayServerInput) {
+    els.relayServerInput.value = state.relayUrl;
+  }
   els.joinStreamInput.value = localStorage.getItem("streamest-watch-code") || "";
   updateSharePanel();
 }
@@ -205,7 +214,7 @@ function renderStreams() {
   if (state.streams.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = state.relayUrl ? "No one is live right now." : "Add a relay server to see live profiles here.";
+    empty.textContent = state.isSupabaseReady ? "No one is live right now." : "Connecting to Supabase live directory.";
     els.streamList.replaceChildren(empty);
   } else {
     els.streamList.replaceChildren(...state.streams.map(streamCardTemplate));
@@ -263,7 +272,178 @@ function normalizeStreamCode(value) {
   return value.trim().replace(/[^a-z0-9]/gi, "").toUpperCase();
 }
 
+function normalizeSupabaseUrl(value) {
+  const url = new URL(value);
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+  return url.origin;
+}
+
+function streamTopic(code) {
+  return `streamest-stream-${code}`;
+}
+
+async function initSupabase() {
+  const config = window.streamestDesktop?.supabase;
+  if (!config?.url || !config?.publishableKey || !window.supabase?.createClient) {
+    els.backendStatus.textContent = "Supabase config missing.";
+    return;
+  }
+
+  state.supabase = window.supabase.createClient(
+    normalizeSupabaseUrl(config.url),
+    config.publishableKey
+  );
+
+  state.liveChannel = state.supabase.channel(liveTopic, {
+    config: { broadcast: { self: true } }
+  });
+
+  state.liveChannel
+    .on("broadcast", { event: "live-list" }, ({ payload }) => updateLiveDirectory(payload.streams || []))
+    .on("broadcast", { event: "live-started" }, ({ payload }) => upsertLiveStream(payload.stream))
+    .on("broadcast", { event: "live-ended" }, ({ payload }) => removeLiveStream(payload.code))
+    .subscribe((status) => {
+      state.isSupabaseReady = status === "SUBSCRIBED";
+      els.backendStatus.textContent = state.isSupabaseReady ? "Connected to Supabase." : `Supabase: ${status}`;
+      updateSharePanel();
+      renderStreams();
+    });
+}
+
+function upsertLiveStream(stream) {
+  if (!stream || state.isLive) return;
+  const next = {
+    id: `remote:${stream.code}`,
+    code: stream.code,
+    name: stream.name,
+    game: stream.game || "Live game",
+    title: stream.title || `${stream.name}'s live stream`,
+    viewers: stream.viewers || 0,
+    quality: stream.quality || "WebRTC",
+    latency: stream.latency || "Low"
+  };
+  state.streams = [next, ...state.streams.filter((item) => item.code !== next.code)];
+  renderStreams();
+  if (!state.selectedId) {
+    showPoster("Live profiles found", "Press a stream card to watch.");
+  }
+}
+
+function updateLiveDirectory(streams) {
+  if (state.isLive) return;
+  state.streams = streams.map((stream) => ({
+    id: `remote:${stream.code}`,
+    code: stream.code,
+    name: stream.name,
+    game: stream.game || "Live game",
+    title: stream.title || `${stream.name}'s live stream`,
+    viewers: stream.viewers || 0,
+    quality: stream.quality || "WebRTC",
+    latency: stream.latency || "Low"
+  }));
+  renderStreams();
+}
+
+function removeLiveStream(code) {
+  state.streams = state.streams.filter((stream) => stream.code !== code);
+  renderStreams();
+}
+
+async function announceLive() {
+  const stream = {
+    code: state.streamCode,
+    name: state.username,
+    game: "Live game",
+    title: `${state.username}'s live stream`,
+    viewers: state.viewerCount,
+    quality: "WebRTC",
+    latency: "Low"
+  };
+  await state.liveChannel?.send({ type: "broadcast", event: "live-started", payload: { stream } });
+}
+
+function startLiveAnnouncements() {
+  window.clearInterval(state.liveInterval);
+  announceLive();
+  state.liveInterval = window.setInterval(announceLive, 5000);
+}
+
+function stopLiveAnnouncements() {
+  window.clearInterval(state.liveInterval);
+  state.liveInterval = null;
+}
+
+async function announceEnded() {
+  await state.liveChannel?.send({ type: "broadcast", event: "live-ended", payload: { code: state.streamCode } });
+}
+
+function openStreamChannel(code, mode) {
+  state.streamChannel?.unsubscribe();
+  state.streamChannel = state.supabase.channel(streamTopic(code), {
+    config: { broadcast: { self: false } }
+  });
+
+  state.streamChannel
+    .on("broadcast", { event: "viewer-joined" }, async ({ payload }) => {
+      if (mode === "broadcaster" && state.localStream) {
+        await createBroadcasterPeer(payload.viewerId);
+      }
+    })
+    .on("broadcast", { event: "viewer-left" }, ({ payload }) => {
+      if (mode === "broadcaster") {
+        closeBroadcasterPeer(payload.viewerId);
+      }
+    })
+    .on("broadcast", { event: "offer" }, async ({ payload }) => {
+      if (mode === "viewer" && payload.target === state.clientId) {
+        await acceptOffer(payload.from, payload.sdp);
+      }
+    })
+    .on("broadcast", { event: "answer" }, async ({ payload }) => {
+      if (mode === "broadcaster" && payload.target === state.clientId) {
+        const peer = state.broadcasterPeers.get(payload.from);
+        if (peer) {
+          await peer.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        }
+      }
+    })
+    .on("broadcast", { event: "ice" }, async ({ payload }) => {
+      if (payload.target !== state.clientId) return;
+      const peer = mode === "viewer" ? state.broadcasterPeer : state.broadcasterPeers.get(payload.from);
+      if (peer && payload.candidate) {
+        await peer.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      }
+    })
+    .on("broadcast", { event: "stream-ended" }, () => {
+      if (mode === "viewer") {
+        closeViewerPeer();
+        showPoster("Stream ended", "The streamer has ended the broadcast.");
+      }
+    });
+
+  return new Promise((resolve) => {
+    state.streamChannel.subscribe((status) => {
+      if (status === "SUBSCRIBED") resolve();
+    });
+  });
+}
+
 function sendSignal(message) {
+  if (state.streamChannel) {
+    const event = message.type;
+    state.streamChannel.send({
+      type: "broadcast",
+      event,
+      payload: {
+        ...message,
+        from: state.clientId
+      }
+    });
+    return;
+  }
+
   if (state.socket?.readyState === WebSocket.OPEN) {
     state.socket.send(JSON.stringify(message));
   }
@@ -596,8 +776,8 @@ async function getScreenStream(source) {
 }
 
 async function goLive() {
-  if (!state.relayUrl) {
-    showToast("Add a relay server before going live so viewers do not use your IP.");
+  if (!state.isSupabaseReady) {
+    showToast("Supabase is still connecting. Try again in a moment.");
     return;
   }
 
@@ -620,7 +800,9 @@ async function goLive() {
       }
     ];
 
-    await connectSignal("broadcaster");
+    state.clientId = `${state.username}-${Math.random().toString(36).slice(2)}`;
+    await openStreamChannel(state.streamCode, "broadcaster");
+    startLiveAnnouncements();
     stream.getVideoTracks()[0]?.addEventListener("ended", endStream);
     updateControls();
     renderStreams();
@@ -634,9 +816,13 @@ async function goLive() {
 }
 
 function endStream() {
-  sendSignal({ type: "end-stream" });
+  announceEnded();
+  stopLiveAnnouncements();
+  state.streamChannel?.send({ type: "broadcast", event: "stream-ended", payload: { code: state.streamCode } });
   state.broadcasterPeers.forEach((peer) => peer.close());
   state.broadcasterPeers.clear();
+  state.streamChannel?.unsubscribe();
+  state.streamChannel = null;
   state.localStream?.getTracks().forEach((track) => track.stop());
   state.localStream = null;
   state.isLive = false;
@@ -701,37 +887,36 @@ async function joinStream() {
 }
 
 async function connectDirectory() {
-  if (!state.relayUrl || state.isLive || state.watchMode) {
+  if (!state.isSupabaseReady || state.isLive || state.watchMode) {
     renderStreams();
     return;
   }
 
-  state.signalBaseUrl = state.relayUrl;
-  try {
-    await connectSignal("directory");
-    setConnectionStatus("Connected to live directory");
-  } catch {
-    showToast("Could not connect to the relay directory.");
-  }
+  setConnectionStatus("Connected to live directory");
 }
 
 async function joinLiveStream(stream) {
-  if (!state.relayUrl) {
-    showToast("Add a relay server first.");
+  if (!state.isSupabaseReady) {
+    showToast("Supabase is still connecting. Try again in a moment.");
     return;
   }
 
   closeViewerPeer();
   state.watchMode = true;
-  state.signalBaseUrl = state.relayUrl;
   state.streamCode = stream.code;
+  state.clientId = `${state.username}-${Math.random().toString(36).slice(2)}`;
   state.selectedId = stream.id;
   updateControls();
   renderStreams();
   showPoster("Connecting to stream", "The video will start as soon as the streamer accepts your connection.");
 
   try {
-    await connectSignal("viewer");
+    await openStreamChannel(stream.code, "viewer");
+    await state.streamChannel.send({
+      type: "broadcast",
+      event: "viewer-joined",
+      payload: { viewerId: state.clientId, viewerName: state.username }
+    });
   } catch {
     showToast("Could not connect to that live stream.");
   }
@@ -740,11 +925,10 @@ async function joinLiveStream(stream) {
 async function init() {
   setUsername(savedUsername());
   await loadServerInfo();
+  await initSupabase();
   updateQualityLabels();
   updateControls();
   renderStreams();
-  connectDirectory();
-
 }
 
 els.usernameInput.addEventListener("change", (event) => setUsername(event.target.value));
@@ -753,6 +937,6 @@ els.goLiveButton.addEventListener("click", goLive);
 els.endStreamButton.addEventListener("click", endStream);
 els.copyLinkButton.addEventListener("click", copyChannelLink);
 els.joinStreamButton.addEventListener("click", joinStream);
-els.relayServerInput.addEventListener("change", (event) => setRelayUrl(event.target.value));
+els.relayServerInput?.addEventListener("change", (event) => setRelayUrl(event.target.value));
 
 init();

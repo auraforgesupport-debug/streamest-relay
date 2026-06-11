@@ -74,13 +74,10 @@
           </button>
         </section>
 
-        <section class="profile-panel compact" aria-label="Relay server">
-          <p class="panel-label">Relay server</p>
-          <label class="field">
-            <span>Server URL</span>
-            <input id="relayServerInput" type="text" autocomplete="off" placeholder="https://relay.yourdomain.com" />
-          </label>
-          <span class="helper-text" id="relayStatus">Local mode shows your network address. Relay mode uses a code.</span>
+        <section class="profile-panel compact" aria-label="Backend">
+          <p class="panel-label">Backend</p>
+          <div class="share-box" id="backendStatus">Connecting to Supabase...</div>
+          <span class="helper-text" id="relayStatus">Live profiles use Supabase Realtime.</span>
         </section>
       </aside>
 
@@ -156,6 +153,7 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="node_modules/@supabase/supabase-js/dist/umd/supabase.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
