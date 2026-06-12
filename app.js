@@ -34,7 +34,8 @@ const state = {
   streamCode: "",
   isSupabaseReady: false,
   liveInterval: null,
-  joinInterval: null
+  joinInterval: null,
+  waitingViewers: new Map()
 };
 
 const els = {
@@ -65,6 +66,8 @@ const els = {
   relayServerInput: document.querySelector("#relayServerInput"),
   relayStatus: document.querySelector("#relayStatus"),
   backendStatus: document.querySelector("#backendStatus"),
+  signalStatus: document.querySelector("#signalStatus"),
+  waitingList: document.querySelector("#waitingList"),
   captureModal: document.querySelector("#captureModal"),
   closeCaptureModal: document.querySelector("#closeCaptureModal"),
   sourceGrid: document.querySelector("#sourceGrid")
@@ -273,6 +276,27 @@ function setConnectionStatus(message) {
   els.connectionStatus.textContent = message;
 }
 
+function setSignalStatus(message) {
+  els.signalStatus.textContent = message;
+}
+
+function renderWaitingViewers() {
+  if (!state.isLive || state.waitingViewers.size === 0) {
+    els.waitingList.replaceChildren();
+    return;
+  }
+
+  const buttons = Array.from(state.waitingViewers.values()).map((viewer) => {
+    const button = document.createElement("button");
+    button.className = "waiting-button";
+    button.type = "button";
+    button.textContent = `Connect ${viewer.name}`;
+    button.addEventListener("click", () => createBroadcasterPeer(viewer.id));
+    return button;
+  });
+  els.waitingList.replaceChildren(...buttons);
+}
+
 function normalizeStreamCode(value) {
   return value.trim().replace(/[^a-z0-9]/gi, "").toUpperCase();
 }
@@ -311,6 +335,12 @@ async function initSupabase() {
     .on("broadcast", { event: "live-ended" }, ({ payload }) => removeLiveStream(payload.code))
     .on("broadcast", { event: "viewer-joined" }, async ({ payload }) => {
       if (state.isLive && state.localStream && payload.code === state.streamCode) {
+        state.waitingViewers.set(payload.viewerId, {
+          id: payload.viewerId,
+          name: payload.viewerName || "Viewer"
+        });
+        renderWaitingViewers();
+        setSignalStatus(`${payload.viewerName || "A viewer"} requested stream`);
         showToast(`${payload.viewerName || "A viewer"} is connecting.`);
         await createBroadcasterPeer(payload.viewerId);
       }
@@ -319,6 +349,7 @@ async function initSupabase() {
       if (state.watchMode && payload.code === state.streamCode && payload.target === state.clientId) {
         stopJoinRequests();
         setConnectionStatus("Received stream offer");
+        setSignalStatus("Received stream offer");
         await acceptOffer(payload.from, payload.sdp);
       }
     })
@@ -327,6 +358,7 @@ async function initSupabase() {
         const peer = state.broadcasterPeers.get(payload.from);
         if (peer) {
           await peer.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          setSignalStatus(`Answer received from ${payload.from}`);
         }
       }
     })
@@ -669,6 +701,7 @@ async function handleSignalMessage(message) {
 }
 
 async function createBroadcasterPeer(viewerId) {
+  if (!viewerId || !state.localStream) return;
   closeBroadcasterPeer(viewerId);
 
   const peer = createPeerConnection();
@@ -690,6 +723,9 @@ async function createBroadcasterPeer(viewerId) {
   const offer = await peer.createOffer();
   await peer.setLocalDescription(offer);
   sendSignal({ type: "offer", target: viewerId, sdp: peer.localDescription.toJSON() });
+  state.waitingViewers.delete(viewerId);
+  renderWaitingViewers();
+  setSignalStatus(`Offer sent to ${viewerId}`);
 }
 
 async function acceptOffer(broadcasterId, sdp) {
@@ -868,6 +904,7 @@ async function goLive() {
     state.localStream = stream;
     state.isLive = true;
     state.viewerCount = 0;
+    state.waitingViewers.clear();
     state.streams = [
       {
         id: "local",
@@ -901,6 +938,8 @@ function endStream() {
   state.liveChannel?.send({ type: "broadcast", event: "stream-ended", payload: { code: state.streamCode } });
   state.broadcasterPeers.forEach((peer) => peer.close());
   state.broadcasterPeers.clear();
+  state.waitingViewers.clear();
+  renderWaitingViewers();
   state.streamChannel?.unsubscribe();
   state.streamChannel = null;
   stopJoinRequests();
@@ -992,9 +1031,11 @@ async function joinLiveStream(stream) {
   showPoster("Connecting to stream", "The video will start as soon as the streamer accepts your connection.");
 
   try {
-    await openStreamChannel(stream.code, "viewer");
     startJoinRequests();
+    await openStreamChannel(stream.code, "viewer");
+    sendViewerJoined();
     setConnectionStatus("Waiting for streamer response");
+    setSignalStatus("Asking streamer to connect");
   } catch {
     showToast("Could not connect to that live stream.");
   }

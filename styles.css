@@ -193,6 +193,22 @@ h2 {
   line-height: 1.4;
 }
 
+.waiting-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.waiting-button {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  padding: 0.65rem 0.7rem;
+  background: #0c1017;
+  color: var(--text);
+  font-weight: 800;
+  text-align: left;
+}
+
 .field input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(39, 224, 163, 0.16);
