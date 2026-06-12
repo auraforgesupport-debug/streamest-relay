@@ -263,6 +263,16 @@ function showPoster(title, subtitle) {
   els.posterSubtitle.textContent = subtitle;
 }
 
+function showRemoteStream(stream) {
+  state.remoteStream = stream;
+  els.viewerVideo.srcObject = stream;
+  els.viewerVideo.muted = false;
+  els.poster.classList.add("hidden");
+  els.viewerVideo.play().catch(() => {
+    setSignalStatus("Video ready. Click the video if it does not play.");
+  });
+}
+
 function updateLocalStreamCard() {
   const stream = state.streams.find((item) => item.id === "local");
   if (!stream) return;
@@ -715,6 +725,7 @@ async function createBroadcasterPeer(viewerId) {
   });
 
   peer.addEventListener("connectionstatechange", () => {
+    setSignalStatus(`Viewer ${viewerId}: ${peer.connectionState}`);
     if (["closed", "failed", "disconnected"].includes(peer.connectionState)) {
       closeBroadcasterPeer(viewerId);
     }
@@ -737,7 +748,15 @@ async function acceptOffer(broadcasterId, sdp) {
   state.remoteStream = remoteStream;
 
   peer.addEventListener("track", (event) => {
-    event.streams[0]?.getTracks().forEach((track) => remoteStream.addTrack(track));
+    if (event.streams[0]) {
+      showRemoteStream(event.streams[0]);
+      setSignalStatus("Remote video track received");
+      return;
+    }
+
+    remoteStream.addTrack(event.track);
+    showRemoteStream(remoteStream);
+    setSignalStatus("Remote video track received");
     if (state.selectedId?.startsWith("remote")) {
       selectStream(state.selectedId);
     }
@@ -750,6 +769,7 @@ async function acceptOffer(broadcasterId, sdp) {
   });
 
   peer.addEventListener("connectionstatechange", () => {
+    setSignalStatus(`WebRTC ${peer.connectionState}`);
     if (peer.connectionState === "connected") {
       stopJoinRequests();
       setConnectionStatus("Watching live");
@@ -762,9 +782,11 @@ async function acceptOffer(broadcasterId, sdp) {
   });
 
   await peer.setRemoteDescription(new RTCSessionDescription(sdp));
+  setSignalStatus("Remote offer accepted");
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
   sendSignal({ type: "answer", target: broadcasterId, sdp: peer.localDescription.toJSON() });
+  setSignalStatus("Answer sent to streamer");
 }
 
 function closeBroadcasterPeer(viewerId) {
