@@ -1,6 +1,13 @@
 const adjectives = ["Swift", "Nova", "Clutch", "Turbo", "Prime", "Flux", "Apex", "Neon"];
 const nouns = ["Rift", "Viper", "Pulse", "Knight", "Vector", "Raider", "Drift", "Cipher"];
 
+const peerConfig = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" }
+  ]
+};
+
 const localRoomCode = "LOCAL";
 const liveTopic = "streamest-live";
 
@@ -26,12 +33,7 @@ const state = {
   relayUrl: "",
   streamCode: "",
   isSupabaseReady: false,
-  liveInterval: null,
-  turn: {
-    urls: "",
-    username: "",
-    credential: ""
-  }
+  liveInterval: null
 };
 
 const els = {
@@ -62,11 +64,6 @@ const els = {
   relayServerInput: document.querySelector("#relayServerInput"),
   relayStatus: document.querySelector("#relayStatus"),
   backendStatus: document.querySelector("#backendStatus"),
-  turnUrlInput: document.querySelector("#turnUrlInput"),
-  turnUsernameInput: document.querySelector("#turnUsernameInput"),
-  turnPasswordInput: document.querySelector("#turnPasswordInput"),
-  saveTurnButton: document.querySelector("#saveTurnButton"),
-  turnStatus: document.querySelector("#turnStatus"),
   captureModal: document.querySelector("#captureModal"),
   closeCaptureModal: document.querySelector("#closeCaptureModal"),
   sourceGrid: document.querySelector("#sourceGrid")
@@ -95,56 +92,8 @@ function savedStreamCode() {
   return code;
 }
 
-function loadTurnSettings() {
-  state.turn = {
-    urls: localStorage.getItem("streamest-turn-url") || "",
-    username: localStorage.getItem("streamest-turn-username") || "",
-    credential: localStorage.getItem("streamest-turn-password") || ""
-  };
-  els.turnUrlInput.value = state.turn.urls;
-  els.turnUsernameInput.value = state.turn.username;
-  els.turnPasswordInput.value = state.turn.credential;
-  updateTurnStatus();
-}
-
-function hasTurnSettings() {
-  return Boolean(state.turn.urls && state.turn.username && state.turn.credential);
-}
-
-function saveTurnSettings() {
-  state.turn = {
-    urls: els.turnUrlInput.value.trim(),
-    username: els.turnUsernameInput.value.trim(),
-    credential: els.turnPasswordInput.value
-  };
-  localStorage.setItem("streamest-turn-url", state.turn.urls);
-  localStorage.setItem("streamest-turn-username", state.turn.username);
-  localStorage.setItem("streamest-turn-password", state.turn.credential);
-  updateTurnStatus();
-  showToast(hasTurnSettings() ? "TURN settings saved." : "Fill in TURN URL, username, and password.");
-}
-
-function updateTurnStatus() {
-  els.turnStatus.textContent = hasTurnSettings()
-    ? "TURN-only WebRTC is enabled. Direct peer connections are blocked."
-    : "TURN is required before streaming or watching.";
-}
-
 function createPeerConnection() {
-  if (!hasTurnSettings()) {
-    throw new Error("TURN settings are required for private WebRTC.");
-  }
-
-  return new RTCPeerConnection({
-    iceTransportPolicy: "relay",
-    iceServers: [
-      {
-        urls: state.turn.urls.split(",").map((url) => url.trim()).filter(Boolean),
-        username: state.turn.username,
-        credential: state.turn.credential
-      }
-    ]
-  });
+  return new RTCPeerConnection(peerConfig);
 }
 
 function setUsername(value) {
@@ -836,11 +785,6 @@ async function goLive() {
     return;
   }
 
-  if (!hasTurnSettings()) {
-    showToast("Add TURN settings first so WebRTC does not expose your IP.");
-    return;
-  }
-
   try {
     const source = await chooseCaptureSource();
     const stream = await getScreenStream(source);
@@ -961,11 +905,6 @@ async function joinLiveStream(stream) {
     return;
   }
 
-  if (!hasTurnSettings()) {
-    showToast("Add TURN settings first so WebRTC does not expose your IP.");
-    return;
-  }
-
   closeViewerPeer();
   state.watchMode = true;
   state.streamCode = stream.code;
@@ -989,7 +928,6 @@ async function joinLiveStream(stream) {
 
 async function init() {
   setUsername(savedUsername());
-  loadTurnSettings();
   await loadServerInfo();
   await initSupabase();
   updateQualityLabels();
@@ -1004,6 +942,5 @@ els.endStreamButton.addEventListener("click", endStream);
 els.copyLinkButton.addEventListener("click", copyChannelLink);
 els.joinStreamButton.addEventListener("click", joinStream);
 els.relayServerInput?.addEventListener("change", (event) => setRelayUrl(event.target.value));
-els.saveTurnButton.addEventListener("click", saveTurnSettings);
 
 init();
