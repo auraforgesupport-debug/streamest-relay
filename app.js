@@ -33,7 +33,8 @@ const state = {
   relayUrl: "",
   streamCode: "",
   isSupabaseReady: false,
-  liveInterval: null
+  liveInterval: null,
+  joinInterval: null
 };
 
 const els = {
@@ -310,11 +311,14 @@ async function initSupabase() {
     .on("broadcast", { event: "live-ended" }, ({ payload }) => removeLiveStream(payload.code))
     .on("broadcast", { event: "viewer-joined" }, async ({ payload }) => {
       if (state.isLive && state.localStream && payload.code === state.streamCode) {
+        showToast(`${payload.viewerName || "A viewer"} is connecting.`);
         await createBroadcasterPeer(payload.viewerId);
       }
     })
     .on("broadcast", { event: "offer" }, async ({ payload }) => {
       if (state.watchMode && payload.code === state.streamCode && payload.target === state.clientId) {
+        stopJoinRequests();
+        setConnectionStatus("Received stream offer");
         await acceptOffer(payload.from, payload.sdp);
       }
     })
@@ -414,6 +418,24 @@ async function announceEnded() {
   await state.liveChannel?.send({ type: "broadcast", event: "live-ended", payload: { code: state.streamCode } });
 }
 
+async function sendViewerJoined() {
+  if (!state.liveChannel || !state.streamCode || !state.clientId) return;
+  const payload = { code: state.streamCode, viewerId: state.clientId, viewerName: state.username };
+  await state.liveChannel.send({ type: "broadcast", event: "viewer-joined", payload });
+  await state.streamChannel?.send({ type: "broadcast", event: "viewer-joined", payload });
+}
+
+function startJoinRequests() {
+  window.clearInterval(state.joinInterval);
+  sendViewerJoined();
+  state.joinInterval = window.setInterval(sendViewerJoined, 2000);
+}
+
+function stopJoinRequests() {
+  window.clearInterval(state.joinInterval);
+  state.joinInterval = null;
+}
+
 function openStreamChannel(code, mode) {
   state.streamChannel?.unsubscribe();
   state.streamChannel = state.supabase.channel(streamTopic(code), {
@@ -466,17 +488,33 @@ function openStreamChannel(code, mode) {
 }
 
 function sendSignal(message) {
+  let sent = false;
+  const event = message.type;
+  const payload = {
+    ...message,
+    code: state.streamCode,
+    from: state.clientId
+  };
+
   if (state.liveChannel) {
-    const event = message.type;
     state.liveChannel.send({
       type: "broadcast",
       event,
-      payload: {
-        ...message,
-        code: state.streamCode,
-        from: state.clientId
-      }
+      payload
     });
+    sent = true;
+  }
+
+  if (state.streamChannel) {
+    state.streamChannel.send({
+      type: "broadcast",
+      event,
+      payload
+    });
+    sent = true;
+  }
+
+  if (sent) {
     return;
   }
 
@@ -677,7 +715,13 @@ async function acceptOffer(broadcasterId, sdp) {
 
   peer.addEventListener("connectionstatechange", () => {
     if (peer.connectionState === "connected") {
+      stopJoinRequests();
       setConnectionStatus("Watching live");
+    }
+
+    if (["failed", "disconnected"].includes(peer.connectionState)) {
+      setConnectionStatus(`WebRTC ${peer.connectionState}`);
+      showPoster("Connection problem", "The stream was found, but the video connection did not complete.");
     }
   });
 
@@ -859,6 +903,7 @@ function endStream() {
   state.broadcasterPeers.clear();
   state.streamChannel?.unsubscribe();
   state.streamChannel = null;
+  stopJoinRequests();
   state.localStream?.getTracks().forEach((track) => track.stop());
   state.localStream = null;
   state.isLive = false;
@@ -948,11 +993,7 @@ async function joinLiveStream(stream) {
 
   try {
     await openStreamChannel(stream.code, "viewer");
-    await state.liveChannel.send({
-      type: "broadcast",
-      event: "viewer-joined",
-      payload: { code: stream.code, viewerId: state.clientId, viewerName: state.username }
-    });
+    startJoinRequests();
     setConnectionStatus("Waiting for streamer response");
   } catch {
     showToast("Could not connect to that live stream.");
