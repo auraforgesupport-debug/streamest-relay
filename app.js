@@ -308,6 +308,37 @@ async function initSupabase() {
     .on("broadcast", { event: "live-list" }, ({ payload }) => updateLiveDirectory(payload.streams || []))
     .on("broadcast", { event: "live-started" }, ({ payload }) => upsertLiveStream(payload.stream))
     .on("broadcast", { event: "live-ended" }, ({ payload }) => removeLiveStream(payload.code))
+    .on("broadcast", { event: "viewer-joined" }, async ({ payload }) => {
+      if (state.isLive && state.localStream && payload.code === state.streamCode) {
+        await createBroadcasterPeer(payload.viewerId);
+      }
+    })
+    .on("broadcast", { event: "offer" }, async ({ payload }) => {
+      if (state.watchMode && payload.code === state.streamCode && payload.target === state.clientId) {
+        await acceptOffer(payload.from, payload.sdp);
+      }
+    })
+    .on("broadcast", { event: "answer" }, async ({ payload }) => {
+      if (state.isLive && payload.code === state.streamCode && payload.target === state.clientId) {
+        const peer = state.broadcasterPeers.get(payload.from);
+        if (peer) {
+          await peer.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        }
+      }
+    })
+    .on("broadcast", { event: "ice" }, async ({ payload }) => {
+      if (payload.code !== state.streamCode || payload.target !== state.clientId) return;
+      const peer = state.watchMode ? state.broadcasterPeer : state.broadcasterPeers.get(payload.from);
+      if (peer && payload.candidate) {
+        await peer.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      }
+    })
+    .on("broadcast", { event: "stream-ended" }, ({ payload }) => {
+      if (state.watchMode && payload.code === state.streamCode) {
+        closeViewerPeer();
+        showPoster("Stream ended", "The streamer has ended the broadcast.");
+      }
+    })
     .subscribe((status) => {
       state.isSupabaseReady = status === "SUBSCRIBED";
       els.backendStatus.textContent = state.isSupabaseReady ? "Connected to Supabase." : `Supabase: ${status}`;
@@ -435,13 +466,14 @@ function openStreamChannel(code, mode) {
 }
 
 function sendSignal(message) {
-  if (state.streamChannel) {
+  if (state.liveChannel) {
     const event = message.type;
-    state.streamChannel.send({
+    state.liveChannel.send({
       type: "broadcast",
       event,
       payload: {
         ...message,
+        code: state.streamCode,
         from: state.clientId
       }
     });
@@ -607,7 +639,7 @@ async function createBroadcasterPeer(viewerId) {
 
   peer.addEventListener("icecandidate", (event) => {
     if (event.candidate) {
-      sendSignal({ type: "ice", target: viewerId, candidate: event.candidate });
+      sendSignal({ type: "ice", target: viewerId, candidate: event.candidate.toJSON() });
     }
   });
 
@@ -619,7 +651,7 @@ async function createBroadcasterPeer(viewerId) {
 
   const offer = await peer.createOffer();
   await peer.setLocalDescription(offer);
-  sendSignal({ type: "offer", target: viewerId, sdp: peer.localDescription });
+  sendSignal({ type: "offer", target: viewerId, sdp: peer.localDescription.toJSON() });
 }
 
 async function acceptOffer(broadcasterId, sdp) {
@@ -639,7 +671,7 @@ async function acceptOffer(broadcasterId, sdp) {
 
   peer.addEventListener("icecandidate", (event) => {
     if (event.candidate) {
-      sendSignal({ type: "ice", target: broadcasterId, candidate: event.candidate });
+      sendSignal({ type: "ice", target: broadcasterId, candidate: event.candidate.toJSON() });
     }
   });
 
@@ -652,7 +684,7 @@ async function acceptOffer(broadcasterId, sdp) {
   await peer.setRemoteDescription(new RTCSessionDescription(sdp));
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
-  sendSignal({ type: "answer", target: broadcasterId, sdp: peer.localDescription });
+  sendSignal({ type: "answer", target: broadcasterId, sdp: peer.localDescription.toJSON() });
 }
 
 function closeBroadcasterPeer(viewerId) {
@@ -822,7 +854,7 @@ async function goLive() {
 function endStream() {
   announceEnded();
   stopLiveAnnouncements();
-  state.streamChannel?.send({ type: "broadcast", event: "stream-ended", payload: { code: state.streamCode } });
+  state.liveChannel?.send({ type: "broadcast", event: "stream-ended", payload: { code: state.streamCode } });
   state.broadcasterPeers.forEach((peer) => peer.close());
   state.broadcasterPeers.clear();
   state.streamChannel?.unsubscribe();
@@ -916,11 +948,12 @@ async function joinLiveStream(stream) {
 
   try {
     await openStreamChannel(stream.code, "viewer");
-    await state.streamChannel.send({
+    await state.liveChannel.send({
       type: "broadcast",
       event: "viewer-joined",
-      payload: { viewerId: state.clientId, viewerName: state.username }
+      payload: { code: stream.code, viewerId: state.clientId, viewerName: state.username }
     });
+    setConnectionStatus("Waiting for streamer response");
   } catch {
     showToast("Could not connect to that live stream.");
   }
